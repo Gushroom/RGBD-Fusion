@@ -1,0 +1,24 @@
+# Depth-only baseline configuration
+exp_name: "depth_baseline"
+
+# Data
+data_root: "MM5_ALIGNED"
+train_split: "train"
+eval_split: "eval"
+modalities: ["depth"]  # Only Depth
+img_size: [224, 224]
+
+# Model
+model_type: "depth_only"  # 'rgb_only', 'depth_only', or 'fusion'
+pretrained: false
+
+# Training
+batch_size: 32
+num_workers: 4
+epochs: 100
+learning_rate: 0.001
+weight_decay: 0.0001
+
+# Saving
+save_dir: "experiments/depth_baseline"
+save_freq: 20  # Save checkpoint every N epochs
