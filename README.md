@@ -125,9 +125,7 @@ rgbd_fusion/
 │   ├── __init__.py
 │   └── metrics.py                 # Metrics & visualization
 │
-├── train.py                       # Classification training (deprecated)
-├── train_segmentation.py          # Segmentation training (ACTIVE)
-├── main.py                        # Testing/debugging script
+├── train_segmentation.py          # Segmentation training
 │
 ├── experiments/                   # Auto-generated, training outputs
 │   ├── seg_rgb_baseline/
@@ -135,11 +133,10 @@ rgbd_fusion/
 │   │   └── seg_rgb_baseline_epoch*.pth
 │   └── seg_early_fusion/
 │
-└── MM5_ALIGNED/                   # Dataset (not in repo)
+└── MM5_SEG/                   
     ├── RGB1/, RGB2/, ..., RGB8/
-    ├── D_FocusN/, D16/, D_Focus/
+    ├── D_FocusN/
     ├── ANNO_CLASS/                # Segmentation masks (used)
-    ├── ANNO_VIS_CLASS/            # Visualizations (not used)
     ├── train_dataset.csv
     ├── eval_dataset.csv
     ├── label_mapping.csv
@@ -168,6 +165,11 @@ pip install torch torchvision tqdm tensorboard scikit-learn matplotlib seaborn p
 ```
 
 ## Quick Start
+
+### Generate collapsed segmentation dataset
+```bash
+uv run remap_dataset.py
+```
 
 ```bash
 bash train.sh
