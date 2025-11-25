@@ -16,7 +16,7 @@ class RGBDSegmentationDataset(Dataset):
         root_dir,
         split='train',  # 'train' or 'eval'
         modality='rgbd',  # 'rgb', 'depth', or 'rgbd'
-        rgb_dir='RGB1',
+        rgb_dir='RGB5',
         depth_dir='D_FocusN',
         anno_dir='ANNO_CLASS',
         transform=None,
@@ -50,35 +50,31 @@ class RGBDSegmentationDataset(Dataset):
         print(f"{'='*60}\n")
     
     def load_class_mapping(self):
-        """Load class ID to name mapping"""
-        # Try JSON first
-        json_path = self.root_dir / 'label_mapping.json'
-        if json_path.exists():
-            with open(json_path, 'r') as f:
-                content = f.read()
-                # Handle the malformed file (JSON + CSV mixed)
-                if '{' in content:
-                    json_str = content.split('\n')[0] if '\n' in content else content
-                    self.class_mapping = json.loads(json_str)
-                else:
-                    # Fallback to CSV
-                    df = pd.read_csv(self.root_dir / 'label_mapping.csv')
-                    self.class_mapping = dict(zip(df['Label Name'], df['ID']))
-        else:
-            # Fallback to CSV
-            df = pd.read_csv(self.root_dir / 'label_mapping.csv')
-            self.class_mapping = dict(zip(df['Label Name'], df['ID']))
-        
-        # Add background class (0)
-        self.num_classes = max(self.class_mapping.values()) + 1  # +1 for background at 0
-        self.class_names = ['Background'] + sorted(self.class_mapping.keys(), 
-                                                   key=lambda x: self.class_mapping[x])
-        
-        print(f"Loaded {self.num_classes} classes:")
-        for i, name in enumerate(self.class_names[:10]):  # Show first 10
+        """Load class ID-to-name mapping from CSV"""
+
+        csv_path = self.root_dir / "label_mapping.csv"
+
+        if not csv_path.exists():
+            raise FileNotFoundError(f"label_mapping.csv not found at: {csv_path}")
+
+        df = pd.read_csv(csv_path)
+
+        # Create mapping: name → ID
+        self.class_mapping = dict(zip(df["Label Name"], df["ID"]))
+
+        # Number of classes (include background = 0)
+        self.num_classes = max(self.class_mapping.values()) + 1
+
+        # Class names sorted by ID, with background at index 0
+        self.class_names = ["Background"] + [
+            name for name, _ in sorted(self.class_mapping.items(), key=lambda x: x[1])
+        ]
+
+        print(f"Loaded {self.num_classes} classes from CSV:")
+        for i, name in enumerate(self.class_names[:10]):
             print(f"  {i}: {name}")
         if len(self.class_names) > 10:
-            print(f"  ... and {len(self.class_names) - 10} more")
+            print(f"  ... and {len(self.class_names)-10} more")
     
     def _build_samples(self):
         """Build list of valid image IDs"""

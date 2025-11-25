@@ -6,9 +6,11 @@ from tqdm import tqdm
 import yaml
 from pathlib import Path
 import numpy as np
+import matplotlib.pyplot as plt
 
-from data.segmentation_dataset import get_segmentation_dataloaders
+from data.dataset_seg import get_segmentation_dataloaders
 from models.resnet_unet import ResNetUNet, ResNetUNetEarlyFusion
+from losses.dice import DiceLoss
 
 
 def calculate_iou(pred, target, num_classes, ignore_index=None):
@@ -147,8 +149,14 @@ def eval_epoch(model, dataloader, criterion, device, modality_mode='rgb', num_cl
 
 
 def train(config):
-    """Main training function"""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    """Main training function with Dice + CrossEntropy loss"""
+    history = {
+        "train_loss": [],
+        "train_iou": [],
+        "eval_loss": [],
+        "eval_iou": [],
+    }
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
     print(f"Using device: {device}")
     
     # Load data
@@ -181,8 +189,13 @@ def train(config):
     model = model.to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
     
-    # Loss (with class weighting for imbalanced classes)
-    criterion = nn.CrossEntropyLoss()
+    # Loss
+    ce_loss = nn.CrossEntropyLoss()
+    dice_loss = DiceLoss()
+    alpha = config.get('dice_alpha', 0.5)  # weight for Dice vs CE
+
+    def combined_loss(logits, targets):
+        return alpha * dice_loss(logits, targets) + (1 - alpha) * ce_loss(logits, targets)
     
     # Optimizer
     optimizer = optim.AdamW(
@@ -207,12 +220,12 @@ def train(config):
         
         # Train
         train_loss, train_iou = train_epoch(
-            model, train_loader, criterion, optimizer, device, modality_mode
+            model, train_loader, combined_loss, optimizer, device, modality_mode
         )
         
         # Evaluate
         eval_loss, eval_iou, class_ious = eval_epoch(
-            model, eval_loader, criterion, device, modality_mode, num_classes
+            model, eval_loader, combined_loss, device, modality_mode, num_classes
         )
         
         # Scheduler step
@@ -221,6 +234,11 @@ def train(config):
         # Print stats
         print(f"Train Loss: {train_loss:.4f} | Train mIoU: {train_iou*100:.2f}%")
         print(f"Eval Loss: {eval_loss:.4f} | Eval mIoU: {eval_iou*100:.2f}%")
+
+        history["train_loss"].append(train_loss)
+        history["train_iou"].append(train_iou)
+        history["eval_loss"].append(eval_loss)
+        history["eval_iou"].append(eval_iou)
         
         # Save best model
         if eval_iou > best_iou:
@@ -249,6 +267,36 @@ def train(config):
             }, save_path)
     
     print(f"\nTraining complete! Best eval mIoU: {best_iou*100:.2f}%")
+
+    plt.figure(figsize=(12, 8))
+
+    epochs = range(1, config['epochs'] + 1)
+
+    # Loss subplot
+    plt.subplot(2, 1, 1)
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["eval_loss"], label="Eval Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Loss Curves")
+    plt.legend()
+    plt.grid()
+
+    # IoU subplot
+    plt.subplot(2, 1, 2)
+    plt.plot(epochs, history["train_iou"], label="Train mIoU")
+    plt.plot(epochs, history["eval_iou"], label="Eval mIoU")
+    plt.xlabel("Epoch")
+    plt.ylabel("mIoU")
+    plt.title("IoU Curves")
+    plt.legend()
+    plt.grid()
+
+    plt.tight_layout()
+
+    plot_path = save_dir / f"{config['exp_name']}_training_curves.png"
+    plt.savefig(plot_path)
+    plt.close()
     return best_iou
 
 

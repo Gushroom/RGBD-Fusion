@@ -172,7 +172,7 @@ class UpBlock(nn.Module):
 # Test the models
 if __name__ == '__main__':
     batch_size = 2
-    num_classes = 32
+    num_classes = 9
     img_size = 224
     
     # Dummy data

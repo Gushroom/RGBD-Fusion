@@ -5,7 +5,7 @@ exp_name: "seg_rgb_baseline"
 task: "segmentation"  # 'classification' or 'segmentation'
 
 # Data
-data_root: "MM5_ALIGNED"
+data_root: "MM5_SEG"
 train_split: "train"
 eval_split: "eval"
 modalities: ["rgb"]
@@ -16,12 +16,12 @@ model_type: "unet_rgb"  # 'unet_rgb', 'unet_early_fusion', 'unet_mid_fusion'
 pretrained: true
 
 # Training
-batch_size: 16  # Smaller for segmentation
+batch_size: 16  
 num_workers: 4
-epochs: 50  # Fewer epochs since segmentation has more signal
+epochs: 100
 learning_rate: 0.001
 weight_decay: 0.0001
 
 # Saving
-save_dir: "experiments/seg_rgb_baseline"
-save_freq: 10
+save_dir: "experiments/seg_rgb_light(5)"
+save_freq: 50
