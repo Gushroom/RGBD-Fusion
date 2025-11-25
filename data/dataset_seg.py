@@ -16,7 +16,7 @@ class RGBDSegmentationDataset(Dataset):
         root_dir,
         split='train',  # 'train' or 'eval'
         modality='rgbd',  # 'rgb', 'depth', or 'rgbd'
-        rgb_dir='RGB5',
+        rgb_dir='RGB3',
         depth_dir='D_FocusN',
         anno_dir='ANNO_CLASS',
         transform=None,
