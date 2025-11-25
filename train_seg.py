@@ -7,8 +7,10 @@ import yaml
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import glob
+import os
 
-from data.dataset_seg import get_segmentation_dataloaders
+from data.dataset_merge import get_segmentation_dataloaders
 from models.resnet_unet import ResNetUNet, ResNetUNetEarlyFusion
 from losses.dice import DiceLoss
 
@@ -163,8 +165,6 @@ def train(config):
     print("Loading segmentation data...")
     train_loader, eval_loader, num_classes = get_segmentation_dataloaders(
         data_root=config['data_root'],
-        train_split=config['train_split'],
-        eval_split=config['eval_split'],
         modalities=config['modalities'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
