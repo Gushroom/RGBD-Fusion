@@ -16,7 +16,7 @@ class RGBDSegmentationDataset(Dataset):
         root_dir,
         split='train',  # 'train' or 'eval'
         modality='rgbd',  # 'rgb', 'depth', or 'rgbd'
-        rgb_dir='RGB3',
+        rgb_dir='RGB1',
         depth_dir='D_FocusN',
         anno_dir='ANNO_CLASS',
         transform=None,
@@ -196,7 +196,7 @@ class RGBDSegmentationDataset(Dataset):
         return sample, mask
 
 
-def get_segmentation_dataloaders(
+def get_dataloaders(
     data_root,
     train_split='train',
     eval_split='eval',

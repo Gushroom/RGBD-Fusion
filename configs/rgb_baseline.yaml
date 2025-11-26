@@ -1,8 +1,8 @@
 # ResNet U-Net RGB-only baseline for segmentation
-exp_name: "seg_rgb_baseline"
+exp_name: "rgb_baseline"
 
 # Task
-task: "segmentation"  # 'classification' or 'segmentation'
+task: "segmentation" 
 
 # Data
 data_root: "MM5_SEG"
@@ -12,16 +12,16 @@ modalities: ["rgb"]
 img_size: [224, 224]
 
 # Model
-model_type: "unet_rgb"  # 'unet_rgb', 'unet_early_fusion', 'unet_mid_fusion'
+model_type: "rgb"  # 'unet_rgb', 'unet_early_fusion', 'unet_mid_fusion'
 pretrained: true
 
 # Training
-batch_size: 16  
+batch_size: 32
 num_workers: 4
-epochs: 100
+epochs: 10
 learning_rate: 0.001
 weight_decay: 0.0001
 
 # Saving
-save_dir: "experiments/seg_rgb_merged"
-save_freq: 50
+save_dir: "experiments/rgb_baseline_1"
+save_freq: 20

@@ -1,0 +1,19 @@
+# Dual-stream late fusion segmentation
+exp_name: "late_fusion"
+
+task: "segmentation"
+data_root: "MM5_SEG"
+modalities: ["rgb", "depth"]
+img_size: [224, 224]
+
+model_type: "late_fusion"
+pretrained: true
+
+batch_size: 32
+num_workers: 4
+epochs: 10
+learning_rate: 0.001
+weight_decay: 0.0001
+
+save_dir: "experiments/late_fusion_1"
+save_freq: 20

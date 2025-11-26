@@ -23,7 +23,7 @@ class RGBDSegmentationDataset(Dataset):
         rgb_dirs=('RGB1',),  # list/tuple of RGB dirs
         depth_dir='D_FocusN',
         anno_dir='ANNO_CLASS',
-        transform=True,
+        transform=False,
         img_size=(224, 224)
     ):
         self.root_dir = Path(root_dir)
@@ -86,7 +86,7 @@ class RGBDSegmentationDataset(Dataset):
     def _load_depth(self, image_id):
         full_path = self.depth_dir / f"{image_id}.png"
         img = cv2.imread(str(full_path), cv2.IMREAD_UNCHANGED).astype(np.float32)
-        img = (img - 18.0) / (234.0 - 18.0)
+        img = (img - img.mean()) / (img.std() + 1e-6)
         img = np.clip(img, 0, 1)
         return img[..., None]  # H,W,1
 
@@ -174,7 +174,7 @@ def get_segmentation_dataloaders(
         modality=modality,
         rgb_dirs=rgb_dirs,
         depth_dir=depth_dir,
-        transform=transform,
+        transform=None,
         img_size=img_size
     )
 
@@ -184,7 +184,7 @@ def get_segmentation_dataloaders(
         modality=modality,
         rgb_dirs=rgb_dirs,
         depth_dir=depth_dir,
-        transform=build_segmentation_transforms(img_size),
+        transform=None,
         img_size=img_size
     )
 

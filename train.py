@@ -7,11 +7,9 @@ import yaml
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import glob
-import os
 
-from data.dataset_merge import get_segmentation_dataloaders
-from models.resnet_unet import ResNetUNet, ResNetUNetEarlyFusion
+from data.dataset import get_dataloaders
+from models import *
 from losses.dice import DiceLoss
 
 
@@ -163,7 +161,7 @@ def train(config):
     
     # Load data
     print("Loading segmentation data...")
-    train_loader, eval_loader, num_classes = get_segmentation_dataloaders(
+    train_loader, eval_loader, num_classes = get_dataloaders(
         data_root=config['data_root'],
         modalities=config['modalities'],
         batch_size=config['batch_size'],
@@ -177,11 +175,23 @@ def train(config):
     
     # Create model
     print(f"\nCreating model: {config['model_type']}")
-    if config['model_type'] == 'unet_rgb':
+    if config['model_type'] == 'rgb':
         model = ResNetUNet(num_classes=num_classes, pretrained=config['pretrained'])
         modality_mode = 'rgb'
-    elif config['model_type'] == 'unet_early_fusion':
+    elif config['model_type'] == 'early_fusion':
         model = ResNetUNetEarlyFusion(num_classes=num_classes, pretrained=config['pretrained'])
+        modality_mode = 'fusion'
+    elif config['model_type'] == 'mid_fusion':
+        model = ResNetUNetMidFusion(num_classes=num_classes, pretrained=config['pretrained'])
+        modality_mode = 'fusion'
+    elif config['model_type'] == 'late_fusion':
+        model = ResNetUNetLateFusion(num_classes=num_classes, pretrained=config['pretrained'])
+        modality_mode = 'fusion'
+    elif config['model_type'] == 'attn_fusion':
+        model = ResNetUNetAttnFusion(num_classes=num_classes, pretrained=config['pretrained'])
+        modality_mode = 'fusion'
+    elif config['model_type'] == 'se_fusion':
+        model = ResNetUNetSEFusion(num_classes=num_classes, pretrained=config['pretrained'])
         modality_mode = 'fusion'
     else:
         raise ValueError(f"Unknown model type: {config['model_type']}")
