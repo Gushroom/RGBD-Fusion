@@ -13,43 +13,71 @@ from models import *
 from losses.dice import DiceLoss
 
 
-def calculate_iou(pred, target, num_classes, ignore_index=None):
-    """Calculate mean IoU (Intersection over Union)"""
-    ious = []
-    pred = pred.view(-1)
-    target = target.view(-1)
-    
-    for cls in range(num_classes):
-        if cls == ignore_index:
-            continue
-        
-        pred_inds = pred == cls
-        target_inds = target == cls
-        
-        intersection = (pred_inds & target_inds).sum().float()
-        union = (pred_inds | target_inds).sum().float()
-        
-        if union == 0:
-            ious.append(float('nan'))  # No ground truth or prediction
+def confusion_matrix(preds, targets, num_classes, ignore_index=None):
+    """
+    Build confusion matrix for a batch.
+    preds: Tensor long, shape [N, H, W]
+    targets: Tensor long, shape [N, H, W]
+    returns: conf (num_classes x num_classes) numpy array where
+        conf[t, p] counts number of pixels with true class t and predicted class p
+    """
+    with torch.no_grad():
+        preds = preds.view(-1).cpu().numpy()
+        targets = targets.view(-1).cpu().numpy()
+
+    if ignore_index is not None:
+        mask = targets != ignore_index
+        preds = preds[mask]
+        targets = targets[mask]
+
+    # filter out-of-range (safety)
+    valid = (targets >= 0) & (targets < num_classes)
+    preds = preds[valid]
+    targets = targets[valid]
+
+    # combine into single index
+    indices = targets * num_classes + preds
+    conf = np.bincount(indices, minlength=num_classes*num_classes).reshape(num_classes, num_classes)
+    return conf
+
+def compute_iou_from_conf(conf, ignore_index=None):
+    """
+    Compute per-class IoU and mean IoU from confusion matrix.
+    conf shape: [num_classes, num_classes] where conf[t,p]
+    """
+    num_classes = conf.shape[0]
+    true_positive = np.diag(conf).astype(np.float64)
+    false_positive = conf.sum(axis=0) - true_positive
+    false_negative = conf.sum(axis=1) - true_positive
+    union = true_positive + false_positive + false_negative
+
+    ious = np.zeros(num_classes, dtype=np.float64)
+    for c in range(num_classes):
+        if ignore_index is not None and c == ignore_index:
+            ious[c] = np.nan
         else:
-            ious.append((intersection / union).item())
-    
-    # Calculate mean IoU (ignoring NaN values)
-    valid_ious = [iou for iou in ious if not np.isnan(iou)]
-    return np.mean(valid_ious) if valid_ious else 0.0, ious
+            if union[c] == 0:
+                ious[c] = np.nan
+            else:
+                ious[c] = true_positive[c] / union[c]
+
+    # mean over non-nan classes
+    valid = ~np.isnan(ious)
+    mean_iou = np.nanmean(ious[valid]) if valid.any() else 0.0
+    return mean_iou, ious
 
 
-def train_epoch(model, dataloader, criterion, optimizer, device, modality_mode='rgb'):
-    """Train for one epoch"""
+def train_epoch(model, dataloader, criterion, optimizer, device, modality_mode='rgb', num_classes=32, ignore_index=None):
+    """Train for one epoch and compute dataset-level mIoU"""
     model.train()
     running_loss = 0.0
-    running_iou = 0.0
-    
+    conf_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
+
     pbar = tqdm(dataloader, desc='Training')
     for data, masks in pbar:
         masks = masks.to(device)
-        
-        # Handle different modality modes
+
+        # Forward
         if modality_mode == 'fusion':
             rgb = data['rgb'].to(device)
             depth = data['depth'].to(device)
@@ -66,47 +94,44 @@ def train_epoch(model, dataloader, criterion, optimizer, device, modality_mode='
             else:
                 depth = data.to(device)
             outputs = model(depth)
-        
+
         # Loss
         loss = criterion(outputs, masks)
-        
+
         # Backward
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
-        # Metrics
+
         running_loss += loss.item()
-        
+
+        # Update confusion matrix
         with torch.no_grad():
-            pred = outputs.argmax(dim=1)
-            miou, _ = calculate_iou(pred, masks, num_classes=outputs.shape[1])
-            running_iou += miou
-        
+            preds = outputs.argmax(dim=1)
+            conf = confusion_matrix(preds, masks, num_classes=num_classes, ignore_index=ignore_index)
+            conf_matrix += conf
+
+        # Optional: show batch loss in progress bar
         pbar.set_postfix({
-            'loss': running_loss / (pbar.n + 1),
-            'mIoU': running_iou / (pbar.n + 1)
+            'loss': running_loss / (pbar.n + 1)
         })
-    
+
     epoch_loss = running_loss / len(dataloader)
-    epoch_iou = running_iou / len(dataloader)
-    
-    return epoch_loss, epoch_iou
+    epoch_miou, per_class_iou = compute_iou_from_conf(conf_matrix, ignore_index=ignore_index)
+
+    return epoch_loss, epoch_miou, per_class_iou
 
 
-def eval_epoch(model, dataloader, criterion, device, modality_mode='rgb', num_classes=32):
-    """Evaluate for one epoch"""
+def eval_epoch(model, dataloader, criterion, device, modality_mode='rgb', num_classes=32, ignore_index=None):
     model.eval()
     running_loss = 0.0
-    running_iou = 0.0
-    all_class_ious = []
-    
+    conf_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
     with torch.no_grad():
         pbar = tqdm(dataloader, desc='Evaluating')
         for data, masks in pbar:
             masks = masks.to(device)
-            
-            # Handle different modality modes
+
+            # forward (same as before)
             if modality_mode == 'fusion':
                 rgb = data['rgb'].to(device)
                 depth = data['depth'].to(device)
@@ -123,29 +148,27 @@ def eval_epoch(model, dataloader, criterion, device, modality_mode='rgb', num_cl
                 else:
                     depth = data.to(device)
                 outputs = model(depth)
-            
-            # Loss
+
+            # loss
             loss = criterion(outputs, masks)
             running_loss += loss.item()
-            
-            # Metrics
-            pred = outputs.argmax(dim=1)
-            miou, class_ious = calculate_iou(pred, masks, num_classes=num_classes)
-            running_iou += miou
-            all_class_ious.append(class_ious)
-            
+
+            # preds
+            preds = outputs.argmax(dim=1)
+
+            # update confusion matrix
+            conf = confusion_matrix(preds, masks, num_classes=num_classes, ignore_index=ignore_index)
+            conf_matrix += conf
+
             pbar.set_postfix({
-                'loss': running_loss / (pbar.n + 1),
-                'mIoU': running_iou / (pbar.n + 1)
+                'loss': running_loss / (pbar.n + 1)
             })
-    
+
     epoch_loss = running_loss / len(dataloader)
-    epoch_iou = running_iou / len(dataloader)
-    
-    # Average per-class IoU
-    avg_class_ious = np.nanmean(all_class_ious, axis=0)
-    
-    return epoch_loss, epoch_iou, avg_class_ious
+    mean_iou, per_class_iou = compute_iou_from_conf(conf_matrix, ignore_index=ignore_index)
+
+    return epoch_loss, mean_iou, per_class_iou
+
 
 
 def train(config):
@@ -166,7 +189,8 @@ def train(config):
         modalities=config['modalities'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
-        img_size=config['img_size']
+        img_size=config['img_size'],
+        rgb_dir=config['rgb_folder']
     )
     
     print(f"Train samples: {len(train_loader.dataset)}")
@@ -175,7 +199,7 @@ def train(config):
     
     # Create model
     print(f"\nCreating model: {config['model_type']}")
-    if config['model_type'] == 'rgb':
+    if config['model_type'] == 'rgb_baseline':
         model = ResNetUNet(num_classes=num_classes, pretrained=config['pretrained'])
         modality_mode = 'rgb'
     elif config['model_type'] == 'early_fusion':
@@ -229,13 +253,13 @@ def train(config):
         print(f"\nEpoch {epoch+1}/{config['epochs']}")
         
         # Train
-        train_loss, train_iou = train_epoch(
-            model, train_loader, combined_loss, optimizer, device, modality_mode
+        train_loss, train_iou, train_class_ious = train_epoch(
+            model, train_loader, combined_loss, optimizer, device, modality_mode, num_classes, ignore_index=0
         )
         
         # Evaluate
         eval_loss, eval_iou, class_ious = eval_epoch(
-            model, eval_loader, combined_loss, device, modality_mode, num_classes
+            model, eval_loader, combined_loss, device, modality_mode, num_classes, ignore_index=0
         )
         
         # Scheduler step
@@ -285,20 +309,18 @@ def train(config):
     # Loss subplot
     plt.subplot(2, 1, 1)
     plt.plot(epochs, history["train_loss"], label="Train Loss")
-    plt.plot(epochs, history["eval_loss"], label="Eval Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Loss Curves")
+    plt.title("Loss Curve")
     plt.legend()
     plt.grid()
 
     # IoU subplot
     plt.subplot(2, 1, 2)
-    plt.plot(epochs, history["train_iou"], label="Train mIoU")
     plt.plot(epochs, history["eval_iou"], label="Eval mIoU")
     plt.xlabel("Epoch")
     plt.ylabel("mIoU")
-    plt.title("IoU Curves")
+    plt.title("IoU Curve")
     plt.legend()
     plt.grid()
 

@@ -16,12 +16,12 @@ model_type: "early_fusion"
 pretrained: true
 
 # Training
-batch_size: 32
+batch_size: 16
 num_workers: 4
-epochs: 10
+epochs: 200
 learning_rate: 0.001
 weight_decay: 0.0001
 
 # Saving
-save_dir: "experiments/early_fusion_1"
-save_freq: 20
+save_dir: "experiments/early_fusion_3"
+save_freq: 1000

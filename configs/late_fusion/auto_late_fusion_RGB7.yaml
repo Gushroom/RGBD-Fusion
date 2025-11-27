@@ -1,11 +1,12 @@
-exp_name: "attn_fusion"
+exp_name: "late_fusion_RGB7"
 
 task: "segmentation"
 data_root: "MM5_SEG"
 modalities: ["rgb", "depth"]
+rgb_folder: "RGB7"
 img_size: [224, 224]
 
-model_type: "attn_fusion"
+model_type: "late_fusion"
 pretrained: true
 
 batch_size: 16
@@ -14,5 +15,5 @@ learning_rate: 0.001
 weight_decay: 0.0001
 num_workers: 4
 
-save_dir: "experiments/attn_fusion_3"
+save_dir: "experiments/late_fusion_RGB7"
 save_freq: 1000

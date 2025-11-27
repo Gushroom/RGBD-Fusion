@@ -1,18 +1,19 @@
-exp_name: "attn_fusion"
+exp_name: "rgb_baseline_RGB6"
 
 task: "segmentation"
 data_root: "MM5_SEG"
 modalities: ["rgb", "depth"]
+rgb_folder: "RGB6"
 img_size: [224, 224]
 
-model_type: "attn_fusion"
+model_type: "rgb_baseline"
 pretrained: true
 
 batch_size: 16
-epochs: 200
+epochs: 300
 learning_rate: 0.001
 weight_decay: 0.0001
 num_workers: 4
 
-save_dir: "experiments/attn_fusion_3"
+save_dir: "experiments/rgb_baseline_RGB6"
 save_freq: 1000

@@ -6,6 +6,8 @@ from torch.utils.data import Dataset
 from pathlib import Path
 import pandas as pd
 import json
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 
 class RGBDSegmentationDataset(Dataset):
@@ -113,8 +115,8 @@ class RGBDSegmentationDataset(Dataset):
             img = (img - 18.0) / (234.0 - 18.0)
             img = np.clip(img, 0, 1)
             
-            # Add channel dimension: [H, W] -> [1, H, W]
-            img = img[np.newaxis, :, :]
+            # Keep as [H, W] for now (add channel later)
+            return img
         else:
             # Load RGB
             full_path = self.rgb_dir / img_filename
@@ -131,12 +133,9 @@ class RGBDSegmentationDataset(Dataset):
                            interpolation=cv2.INTER_LINEAR)
             
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = img.astype(np.float32) / 255.0
             
-            # [H, W, C] -> [C, H, W]
-            img = np.transpose(img, (2, 0, 1))
-        
-        return img
+            # Albumentations will handle the normalization
+            return img
     
     def _load_annotation(self, image_id):
         """Load segmentation mask"""
@@ -156,44 +155,120 @@ class RGBDSegmentationDataset(Dataset):
         
         return mask.astype(np.int64)
     
+    def normalize_depth_manual(self, depth):
+        """
+        Manually normalize depth to ImageNet-like range.
+        """
+        # Apply ImageNet-style normalization
+        depth = (depth - 0.485) / 0.229
+        return depth
+    
     def __len__(self):
         return len(self.samples)
     
     def __getitem__(self, idx):
         image_id = self.samples[idx]
-        
-        # Load annotation (always needed)
+
+        rgb = None
+        depth = None
+
+        # --- load annotation ---
         mask = self._load_annotation(image_id)
-        
-        # Load based on modality
+
+        # --- load inputs based on modality ---
+        if self.modality in ['rgb', 'rgbd']:
+            rgb = self._load_image(image_id, is_depth=False)  # [H, W, 3], uint8 [0, 255]
+
+        if self.modality in ['depth', 'rgbd']:
+            depth = self._load_image(image_id, is_depth=True)  # [H, W], float32 [0, 1]
+            # Normalize depth BEFORE augmentation
+            depth = self.normalize_depth_manual(depth)
+            # Add channel dimension for Albumentations
+            depth = depth[..., np.newaxis]  # [H, W, 1]
+
+        if self.transform:
+            if self.modality == 'rgb':
+                # RGB only - A.Normalize will handle RGB normalization
+                out = self.transform(image=rgb, mask=mask)
+                rgb = out["image"]
+                mask = out["mask"]
+
+            elif self.modality == 'depth':
+                out = self.transform(image=depth, mask=mask)
+                depth = out["image"]
+                mask = out["mask"]
+
+            else:  # rgbd
+                out = self.transform(image=rgb, depth=depth, mask=mask)
+                rgb = out["image"]
+                depth = out["depth"]
+                mask = out["mask"]
+
         if self.modality == 'rgb':
-            rgb = self._load_image(image_id, is_depth=False)
-            sample = torch.from_numpy(rgb).float()
-            
+            return rgb.float(), mask.long()
+
         elif self.modality == 'depth':
-            depth = self._load_image(image_id, is_depth=True)
-            sample = torch.from_numpy(depth).float()
-            
-        elif self.modality == 'rgbd':
-            rgb = self._load_image(image_id, is_depth=False)
-            depth = self._load_image(image_id, is_depth=True)
-            
-            # Apply transforms if provided
-            if self.transform:
-                # Stack for joint transform, then split
-                stacked = np.concatenate([rgb, depth], axis=0)  # [4, H, W]
-                # TODO: Add proper augmentation that handles mask
-                rgb = stacked[:3]
-                depth = stacked[3:4]
-            
-            sample = {
-                'rgb': torch.from_numpy(rgb).float(),
-                'depth': torch.from_numpy(depth).float()
-            }
-        
-        mask = torch.from_numpy(mask).long()
-        
-        return sample, mask
+            return depth.float(), mask.long()
+
+        else:  # rgbd
+            return {"rgb": rgb.float(), "depth": depth.float()}, mask.long()
+
+
+def build_transforms(img_size=(224, 224), modality='rgbd'):
+    """
+    Build transforms based on modality.
+    """
+    
+    if modality == 'rgb':
+        # RGB-only: Apply normalization
+        return A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.2),
+            A.RandomRotate90(p=0.2),
+            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
+            # Photometric (RGB only)
+            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.3),
+            A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+            # Normalize RGB with ImageNet stats
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+                max_pixel_value=255.0  # RGB is [0, 255]
+            ),
+            ToTensorV2(),
+        ])
+    
+    elif modality == 'depth':
+        # Depth-only: No normalization (already done manually)
+        return A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.2),
+            A.RandomRotate90(p=0.2),
+            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
+            # NO ColorJitter for depth!
+            # NO Normalize for depth (already done manually)
+            ToTensorV2(),
+        ])
+    
+    else:  # rgbd
+        # Uses Lambda to apply different normalization to each modality
+        return A.Compose([
+            # Geometric transforms (applied to both)
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.2),
+            A.RandomRotate90(p=0.2),
+            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
+            # Photometric (RGB ONLY - depth handled separately)
+            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.3),
+            A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+            # Normalize ONLY RGB (depth already normalized)
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+                max_pixel_value=255.0
+            ),
+            ToTensorV2(),
+        ], additional_targets={'depth': 'image'})
 
 
 def get_dataloaders(
@@ -201,25 +276,13 @@ def get_dataloaders(
     train_split='train',
     eval_split='eval',
     modalities=['rgb'],
-    batch_size=16,  # Smaller batch size for segmentation
+    batch_size=16,
     num_workers=4,
     img_size=(224, 224),
     rgb_dir='RGB1',
     depth_dir='D_FocusN'
 ):
-    """Create train and validation dataloaders for segmentation
-    
-    Args:
-        data_root: Path to dataset root
-        train_split: Name of train split
-        eval_split: Name of eval split
-        modalities: List of modalities ['rgb'], ['depth'], or ['rgb', 'depth']
-        batch_size: Batch size (default 16 for segmentation)
-        num_workers: Number of data loading workers
-        img_size: Target image size (H, W)
-        rgb_dir: RGB directory name
-        depth_dir: Depth directory name
-    """
+    """Create train and validation dataloaders for segmentation"""
     
     # Determine modality mode
     if len(modalities) == 2 or 'rgbd' in modalities:
@@ -230,6 +293,8 @@ def get_dataloaders(
         modality = 'depth'
     else:
         raise ValueError(f"Invalid modalities: {modalities}")
+
+    transforms = build_transforms(img_size=img_size, modality=modality)
     
     train_dataset = RGBDSegmentationDataset(
         root_dir=data_root,
@@ -237,7 +302,7 @@ def get_dataloaders(
         modality=modality,
         rgb_dir=rgb_dir,
         depth_dir=depth_dir,
-        transform=None,
+        transform=transforms,
         img_size=img_size
     )
     
@@ -247,7 +312,7 @@ def get_dataloaders(
         modality=modality,
         rgb_dir=rgb_dir,
         depth_dir=depth_dir,
-        transform=None,
+        transform=transforms,
         img_size=img_size
     )
     
@@ -268,40 +333,3 @@ def get_dataloaders(
     )
     
     return train_loader, val_loader, train_dataset.num_classes
-
-
-# Test the dataset
-if __name__ == '__main__':
-    root = 'MM5_ALIGNED'
-    
-    print("\n" + "="*60)
-    print("Testing Segmentation Dataset")
-    print("="*60)
-    
-    train_loader, val_loader, num_classes = get_segmentation_dataloaders(
-        data_root=root,
-        modalities=['rgb'],
-        batch_size=4,
-        num_workers=0,
-        img_size=(224, 224)
-    )
-    
-    print(f"\nDataset Summary:")
-    print(f"  Number of classes: {num_classes}")
-    print(f"  Train batches: {len(train_loader)}")
-    print(f"  Val batches: {len(val_loader)}")
-    
-    # Test one batch
-    print(f"\nTesting batch loading...")
-    for batch, masks in train_loader:
-        if isinstance(batch, dict):
-            print(f"  RGB shape: {batch['rgb'].shape}")
-            print(f"  Depth shape: {batch['depth'].shape}")
-        else:
-            print(f"  Batch shape: {batch.shape}")
-        print(f"  Mask shape: {masks.shape}")
-        print(f"  Unique classes in batch: {torch.unique(masks).tolist()}")
-        print(f"  Mask value range: [{masks.min()}, {masks.max()}]")
-        break
-    
-    print("\n✓ Segmentation dataset loading successful!")

@@ -144,9 +144,6 @@ def build_segmentation_transforms(img_size=(224,224)):
         A.Resize(img_size[0], img_size[1], interpolation=1),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.2),
-        A.RandomBrightnessContrast(p=0.3),
-        A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.2, rotate_limit=15, border_mode=cv2.BORDER_REFLECT,p=0.5),
-        A.GaussNoise(p=0.2),
         A.Normalize(mean=0.5, std=0.5, max_pixel_value=1.0),
         ToTensorV2(),
     ], additional_targets={})
