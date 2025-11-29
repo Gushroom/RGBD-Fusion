@@ -16,8 +16,8 @@ class RGBDSegmentationDataset(Dataset):
     def __init__(
         self,
         root_dir,
-        split='train',  # 'train' or 'eval'
-        modality='rgbd',  # 'rgb', 'depth', or 'rgbd'
+        split='train',
+        modality='rgbd',
         rgb_dir='RGB1',
         depth_dir='D_FocusN',
         anno_dir='ANNO_CLASS',
@@ -33,14 +33,11 @@ class RGBDSegmentationDataset(Dataset):
         self.split = split
         self.img_size = img_size
         
-        # Load class mapping
         self.load_class_mapping()
         
-        # Load CSV data to get valid IDs
         csv_file = 'train_dataset.csv' if split == 'train' else 'eval_dataset.csv'
         self.df = pd.read_csv(self.root_dir / csv_file)
         
-        # Build samples list (just IDs, labels come from segmentation masks)
         self.samples = self._build_samples()
         
         print(f"\n{'='*60}")
@@ -52,8 +49,6 @@ class RGBDSegmentationDataset(Dataset):
         print(f"{'='*60}\n")
     
     def load_class_mapping(self):
-        """Load class ID-to-name mapping from CSV"""
-
         csv_path = self.root_dir / "label_mapping.csv"
 
         if not csv_path.exists():
@@ -61,13 +56,9 @@ class RGBDSegmentationDataset(Dataset):
 
         df = pd.read_csv(csv_path)
 
-        # Create mapping: name → ID
         self.class_mapping = dict(zip(df["Label Name"], df["ID"]))
-
-        # Number of classes (include background = 0)
         self.num_classes = max(self.class_mapping.values()) + 1
 
-        # Class names sorted by ID, with background at index 0
         self.class_names = ["Background"] + [
             name for name, _ in sorted(self.class_mapping.items(), key=lambda x: x[1])
         ]
@@ -79,13 +70,11 @@ class RGBDSegmentationDataset(Dataset):
             print(f"  ... and {len(self.class_names)-10} more")
     
     def _build_samples(self):
-        """Build list of valid image IDs"""
         samples = []
         
         for idx, row in self.df.iterrows():
             image_id = row['ID']
             
-            # Check if annotation exists
             anno_path = self.anno_dir / f"{image_id}.png"
             if anno_path.exists():
                 samples.append(image_id)
@@ -93,7 +82,6 @@ class RGBDSegmentationDataset(Dataset):
         return samples
     
     def _load_image(self, image_id, is_depth=False):
-        """Load and preprocess image by ID"""
         img_filename = f"{image_id}.png"
         
         if is_depth:
@@ -106,19 +94,16 @@ class RGBDSegmentationDataset(Dataset):
             if img is None:
                 raise ValueError(f"Failed to load depth: {full_path}")
             
-            # Resize
             img = cv2.resize(img, (self.img_size[1], self.img_size[0]), 
-                           interpolation=cv2.INTER_LINEAR)
+                           interpolation=cv2.INTER_NEAREST)
             
-            # Normalize D_FocusN: uint8 [18, 234] -> float32 [0, 1]
             img = img.astype(np.float32)
-            img = (img - 18.0) / (234.0 - 18.0)
-            img = np.clip(img, 0, 1)
+            img = (img - 138.94) / 52.13
             
-            # Keep as [H, W] for now (add channel later)
+            img = img[..., np.newaxis]
+            
             return img
         else:
-            # Load RGB
             full_path = self.rgb_dir / img_filename
             
             if not full_path.exists():
@@ -128,40 +113,27 @@ class RGBDSegmentationDataset(Dataset):
             if img is None:
                 raise ValueError(f"Failed to load RGB: {full_path}")
             
-            # Resize
             img = cv2.resize(img, (self.img_size[1], self.img_size[0]),
                            interpolation=cv2.INTER_LINEAR)
             
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
-            # Albumentations will handle the normalization
             return img
     
     def _load_annotation(self, image_id):
-        """Load segmentation mask"""
         anno_path = self.anno_dir / f"{image_id}.png"
         
         if not anno_path.exists():
             raise FileNotFoundError(f"Annotation not found: {anno_path}")
         
-        # Load as grayscale (class indices)
         mask = cv2.imread(str(anno_path), cv2.IMREAD_UNCHANGED)
         if mask is None:
             raise ValueError(f"Failed to load annotation: {anno_path}")
         
-        # Resize with nearest neighbor (preserve class indices)
         mask = cv2.resize(mask, (self.img_size[1], self.img_size[0]),
                          interpolation=cv2.INTER_NEAREST)
         
         return mask.astype(np.int64)
-    
-    def normalize_depth_manual(self, depth):
-        """
-        Manually normalize depth to ImageNet-like range.
-        """
-        # Apply ImageNet-style normalization
-        depth = (depth - 0.485) / 0.229
-        return depth
     
     def __len__(self):
         return len(self.samples)
@@ -172,23 +144,16 @@ class RGBDSegmentationDataset(Dataset):
         rgb = None
         depth = None
 
-        # --- load annotation ---
         mask = self._load_annotation(image_id)
 
-        # --- load inputs based on modality ---
         if self.modality in ['rgb', 'rgbd']:
-            rgb = self._load_image(image_id, is_depth=False)  # [H, W, 3], uint8 [0, 255]
+            rgb = self._load_image(image_id, is_depth=False)
 
         if self.modality in ['depth', 'rgbd']:
-            depth = self._load_image(image_id, is_depth=True)  # [H, W], float32 [0, 1]
-            # Normalize depth BEFORE augmentation
-            depth = self.normalize_depth_manual(depth)
-            # Add channel dimension for Albumentations
-            depth = depth[..., np.newaxis]  # [H, W, 1]
+            depth = self._load_image(image_id, is_depth=True)
 
         if self.transform:
             if self.modality == 'rgb':
-                # RGB only - A.Normalize will handle RGB normalization
                 out = self.transform(image=rgb, mask=mask)
                 rgb = out["image"]
                 mask = out["mask"]
@@ -198,77 +163,68 @@ class RGBDSegmentationDataset(Dataset):
                 depth = out["image"]
                 mask = out["mask"]
 
-            else:  # rgbd
+            else:
                 out = self.transform(image=rgb, depth=depth, mask=mask)
                 rgb = out["image"]
                 depth = out["depth"]
                 mask = out["mask"]
+        else:
+            if self.modality == 'rgb':
+                rgb = torch.from_numpy(rgb.transpose(2, 0, 1))
+            elif self.modality == 'depth':
+                depth = torch.from_numpy(depth.transpose(2, 0, 1))
+            else:
+                rgb = torch.from_numpy(rgb.transpose(2, 0, 1))
+                depth = torch.from_numpy(depth.transpose(2, 0, 1))
+            mask = torch.from_numpy(mask)
 
         if self.modality == 'rgb':
-            return rgb.float(), mask.long()
+            rgb = rgb.float() / 255.0
+            rgb = (rgb - torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)) / torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+            return rgb, mask.long()
 
         elif self.modality == 'depth':
             return depth.float(), mask.long()
 
-        else:  # rgbd
-            return {"rgb": rgb.float(), "depth": depth.float()}, mask.long()
+        else:
+            rgb = rgb.float() / 255.0
+            rgb = (rgb - torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)) / torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+            return {"rgb": rgb, "depth": depth.float()}, mask.long()
 
 
-def build_transforms(img_size=(224, 224), modality='rgbd'):
-    """
-    Build transforms based on modality.
-    """
-    
-    if modality == 'rgb':
-        # RGB-only: Apply normalization
-        return A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.2),
-            A.RandomRotate90(p=0.2),
-            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
-            # Photometric (RGB only)
-            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.3),
-            A.GaussianBlur(blur_limit=(3, 7), p=0.3),
-            # Normalize RGB with ImageNet stats
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-                max_pixel_value=255.0  # RGB is [0, 255]
-            ),
-            ToTensorV2(),
-        ])
-    
-    elif modality == 'depth':
-        # Depth-only: No normalization (already done manually)
-        return A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.2),
-            A.RandomRotate90(p=0.2),
-            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
-            # NO ColorJitter for depth!
-            # NO Normalize for depth (already done manually)
-            ToTensorV2(),
-        ])
-    
-    else:  # rgbd
-        # Uses Lambda to apply different normalization to each modality
-        return A.Compose([
-            # Geometric transforms (applied to both)
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.2),
-            A.RandomRotate90(p=0.2),
-            A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
-            # Photometric (RGB ONLY - depth handled separately)
-            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.3),
-            A.GaussianBlur(blur_limit=(3, 7), p=0.3),
-            # Normalize ONLY RGB (depth already normalized)
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-                max_pixel_value=255.0
-            ),
-            ToTensorV2(),
-        ], additional_targets={'depth': 'image'})
+def build_transforms(img_size=(224, 224), modality='rgbd', is_train=True):
+    if is_train:
+        if modality == 'rgbd':
+            transforms = [
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.2),
+                A.RandomRotate90(p=0.2),
+                A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
+                A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
+                A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+                ToTensorV2(),
+            ]
+            return A.Compose(transforms, additional_targets={'depth': 'image'})
+        else:
+            transforms = [
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.2),
+                A.RandomRotate90(p=0.2),
+                A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.1, rotate_limit=10, p=0.3),
+            ]
+            if modality == 'rgb':
+                transforms.extend([
+                    A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.5),
+                    A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+                ])
+            transforms.append(ToTensorV2())
+            return A.Compose(transforms)
+    else:
+        transforms = [ToTensorV2()]
+        if modality == 'rgbd':
+            return A.Compose(transforms, additional_targets={'depth': 'image'})
+        else:
+            return A.Compose(transforms)
 
 
 def get_dataloaders(
@@ -282,9 +238,6 @@ def get_dataloaders(
     rgb_dir='RGB1',
     depth_dir='D_FocusN'
 ):
-    """Create train and validation dataloaders for segmentation"""
-    
-    # Determine modality mode
     if len(modalities) == 2 or 'rgbd' in modalities:
         modality = 'rgbd'
     elif 'rgb' in modalities:
@@ -294,7 +247,8 @@ def get_dataloaders(
     else:
         raise ValueError(f"Invalid modalities: {modalities}")
 
-    transforms = build_transforms(img_size=img_size, modality=modality)
+    train_transform = build_transforms(img_size=img_size, modality=modality, is_train=True)
+    val_transform = build_transforms(img_size=img_size, modality=modality, is_train=False)
     
     train_dataset = RGBDSegmentationDataset(
         root_dir=data_root,
@@ -302,7 +256,7 @@ def get_dataloaders(
         modality=modality,
         rgb_dir=rgb_dir,
         depth_dir=depth_dir,
-        transform=transforms,
+        transform=train_transform,
         img_size=img_size
     )
     
@@ -312,7 +266,7 @@ def get_dataloaders(
         modality=modality,
         rgb_dir=rgb_dir,
         depth_dir=depth_dir,
-        transform=transforms,
+        transform=val_transform,
         img_size=img_size
     )
     

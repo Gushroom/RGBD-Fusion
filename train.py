@@ -301,6 +301,8 @@ def train(config):
             }, save_path)
     
     print(f"\nTraining complete! Best eval mIoU: {best_iou*100:.2f}%")
+    with open(f"results.txt", "a") as f:
+        f.write(f"{config['exp_name']}: {best_iou*100:.2f} \n")
 
     plt.figure(figsize=(12, 8))
 
