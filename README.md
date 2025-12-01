@@ -6,26 +6,24 @@ A PyTorch implementation of multimodal fusion networks combining RGB and Depth d
 
 ```
 rgbd_fusion/
+.
+├── batch_train.sh
 ├── configs
-│   ├── cls_rgb_baseline.yaml
-│   ├── depth_baseline.yaml
-│   ├── rgbd_fusion.yaml
-│   ├── seg_early_fusion.yaml
-│   └── seg_rgb_baseline.yaml
+│   ├── attn_fusion
+│   ├── early_fusion
+│   ├── late_fusion
+│   ├── mid_fusion
+│   ├── rgb_baseline
+│   ├── se_fusion
 ├── data
+│   ├── dataset_merge.py
+│   ├── dataset.py
 │   ├── __init__.py
-│   ├── dataset_cls.py
-│   └── dataset_seg.py
-├── eval_seg.py
+├── eval.py
 ├── experiments
-│   ├── seg_early_fusion_dice
-│   ├── seg_early_fusion_light(3)
-│   ├── seg_early_fusion_light(5)
-│   ├── seg_rgb_baseline
-│   ├── seg_rgb_light(3)
-│   └── seg_rgb_light(5)
 ├── losses
-│   └── dice.py
+│   ├── dice.py
+│   └── __pycache__
 ├── MM5_SEG
 │   ├── ANNO_CLASS
 │   ├── classes.txt
@@ -42,14 +40,19 @@ rgbd_fusion/
 │   ├── RGB8
 │   └── train_dataset.csv
 ├── models
+│   ├── attn_fusion.py
+│   ├── earlyfusion.py
 │   ├── __init__.py
-│   ├── resnet_fusion.py
-│   └── resnet_unet.py
+│   ├── latefusion.py
+│   ├── midfusion.py
+│   ├── resnet_unet.py
+│   ├── sefusion.py
+│   └── upblock.py
 ├── pyproject.toml
 ├── README.md
 ├── remap_dataset.py
-├── train_cls.py
-├── train_seg.py
+├── results.txt
+├── train.py
 ├── train.sh
 ├── utils
 │   ├── __init__.py
@@ -83,6 +86,6 @@ uv run remap_dataset.py
 ```
 
 ```bash
-bash train.sh
+bash batch_train.sh
 ```
 

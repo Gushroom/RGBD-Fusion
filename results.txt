@@ -1,4 +1,3 @@
-
 rgb_baseline_RGB1: 73.25 
 rgb_baseline_RGB2: 69.51 
 rgb_baseline_RGB3: 94.85 
