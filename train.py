@@ -217,6 +217,9 @@ def train(config):
     elif config['model_type'] == 'se_fusion':
         model = ResNetUNetSEFusion(num_classes=num_classes, pretrained=config['pretrained'])
         modality_mode = 'fusion'
+    elif config['model_type'] == 'transformer_fusion':
+        model = ResNetTransformerFusion(num_classes=num_classes, pretrained=config['pretrained'])
+        modality_mode = 'fusion'
     else:
         raise ValueError(f"Unknown model type: {config['model_type']}")
     
