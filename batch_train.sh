@@ -2,15 +2,15 @@
 
 CONFIG_DIR="configs"
 DATA_ROOT="MM5_SEG"
-RGB_LIST=(RGB1 RGB2 RGB3 RGB4 RGB5 RGB6 RGB7 RGB8)
+RGB_LIST=(RGB8)
 
 MODELS=(
-    "rgb_baseline"
-    "early_fusion"
-    "mid_fusion"
-    "late_fusion"
+    # "rgb_baseline"
+    # "early_fusion"
+    # "mid_fusion"
+    # "late_fusion"
     "se_fusion"
-    "attn_fusion"
+    # "attn_fusion"
 )
 
 BASE_EPOCHS=300
