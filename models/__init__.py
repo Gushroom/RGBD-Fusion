@@ -5,6 +5,7 @@ from .midfusion import ResNetUNetMidFusion
 from .latefusion import ResNetUNetLateFusion
 from .attn_fusion import ResNetUNetAttnFusion
 from .sefusion import ResNetUNetSEFusion
+from .transformer_fusion import ResNetTransformerFusion
 
 __all__ = [
     "UpBlock",
@@ -13,5 +14,6 @@ __all__ = [
     "ResNetUNetMidFusion",
     "ResNetUNetLateFusion",
     "ResNetUNetAttnFusion",
-    "ResNetUNetSEFusion"
+    "ResNetUNetSEFusion",
+    "ResNetTransformerFusion"
 ]
