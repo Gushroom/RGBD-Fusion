@@ -2,6 +2,23 @@
 
 A PyTorch implementation of multimodal fusion networks combining RGB and Depth data for semantic segmentation, with progressive complexity and multiple merging techniques.
 
+## Participants
+Tianhao Li
+
+Tania Shokor
+
+Rua Mohamad
+
+## Description of the Conducted Research 
+
+### Motivation
+
+### Objective
+
+### Dataset
+
+### Methodology
+
 ## Project Structure
 
 ```
@@ -88,4 +105,6 @@ uv run remap_dataset.py
 ```bash
 bash batch_train.sh
 ```
+
+## Results
 
